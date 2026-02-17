@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..core.database import Base
 
@@ -13,4 +14,8 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    is_active = Column(Boolean, default=True, nullable=False)
+    
+    # Relationships
+    created_teams = relationship("Team", back_populates="creator")
+    teams = relationship("Team", secondary="team_members", back_populates="members")
+    created_projects = relationship("Project", back_populates="creator")
