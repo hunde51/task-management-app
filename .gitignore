@@ -83,7 +83,8 @@ alembic/versions/*.py
 .coverage
 htmlcov/
 
-# mypy
+# mypyso 
 .mypy_cache/
 .dmypy.json
 dmypy.json
+1
