@@ -3,6 +3,8 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Home from "./pages/Home";
+import TeamPage from "./pages/TeamPage";
+import ProjectPage from "./pages/ProjectPage";
 
 function Loading() {
   return (
@@ -32,6 +34,8 @@ function AppRoutes() {
       <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
       <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
       <Route path="/" element={<PrivateRoute><Home /></PrivateRoute>} />
+      <Route path="/teams" element={<PrivateRoute><TeamPage /></PrivateRoute>} />
+      <Route path="/teams/:teamId/projects" element={<PrivateRoute><ProjectPage /></PrivateRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
