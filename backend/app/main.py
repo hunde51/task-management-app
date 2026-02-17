@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import auth
+from app.routers import auth, projects, team
 from app.core.database import engine, Base
 from app.models.user import User  # noqa: F401 - register model so Base.metadata has tables
+from app.models.team import Team  # noqa: F401 - register model so Base.metadata has tables
+from app.models.project import Project  # noqa: F401 - register model so Base.metadata has tables
 
 app = FastAPI(title="Task Management API")
 
@@ -21,7 +23,10 @@ app.add_middleware(
 Base.metadata.create_all(bind=engine)
 
 app.include_router(auth.router)
+app.include_router(team.router)
+app.include_router(projects.router)
 
 @app.get("/")
 def read_root():
     return {"message": "Task Management API"}
+
