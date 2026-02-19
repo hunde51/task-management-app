@@ -1,14 +1,19 @@
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Literal, Optional
+from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-TeamRole = Literal["owner", "member"]
+
+class TeamRole(str, Enum):
+    OWNER = "owner"
+    MEMBER = "member"
 
 
 class TeamBase(BaseModel):
     name: str = Field(min_length=2, max_length=80)
-    description: Optional[str] = Field(default=None, max_length=500)
+    description: str | None = Field(default=None, max_length=500)
 
 
 class TeamCreate(TeamBase):
@@ -19,20 +24,20 @@ class TeamResponse(TeamBase):
     id: int
     created_by: int
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
+    current_user_role: TeamRole | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
-class TeamMember(BaseModel):
+class TeamMemberCreate(BaseModel):
     user_id: int
-    role: TeamRole = "member"
+    role: TeamRole = TeamRole.MEMBER
 
 
 class TeamMemberInvite(BaseModel):
     identifier: str = Field(min_length=2, max_length=255, description="Username or email")
-    role: TeamRole = "member"
+    role: TeamRole = TeamRole.MEMBER
 
 
 class TeamMemberResponse(BaseModel):
@@ -41,9 +46,10 @@ class TeamMemberResponse(BaseModel):
     user_id: int
     role: TeamRole
     joined_at: datetime
-
-    class Config:
-        from_attributes = True
+    username: str
+    email: str
+    first_name: str
+    last_name: str
 
 
 class TeamMemberDetailResponse(BaseModel):
