@@ -1,12 +1,13 @@
-from datetime import datetime
-from typing import Optional
+from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProjectBase(BaseModel):
     name: str = Field(min_length=2, max_length=120)
-    description: Optional[str] = Field(default=None, max_length=2000)
+    description: str | None = Field(default=None, max_length=2000)
 
 
 class ProjectCreate(ProjectBase):
@@ -14,8 +15,8 @@ class ProjectCreate(ProjectBase):
 
 
 class ProjectUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, min_length=2, max_length=120)
-    description: Optional[str] = Field(default=None, max_length=2000)
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
 
 
 class ProjectResponse(ProjectBase):
@@ -23,7 +24,7 @@ class ProjectResponse(ProjectBase):
     team_id: int
     created_by: int
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
+    can_delete: bool = False
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
