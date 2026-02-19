@@ -1,345 +1,286 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+
+import Badge from "../components/ui/Badge";
+import Button from "../components/ui/Button";
+import Card from "../components/ui/Card";
+import { FormInput, FormSelect, FormTextArea } from "../components/ui/FormInput";
+import { EmptyState, InlineNotice, LoadingState } from "../components/ui/StateBlock";
+import MainLayout from "../layouts/MainLayout";
+import { useAuth } from "../hooks/useAuth";
+import { useWorkspace } from "../hooks/useWorkspace";
 import {
   createTeam,
-  getTeamMembers,
-  getTeams,
   inviteTeamMember,
-  type Team,
+  listTeamMembers,
   type TeamMember,
   type TeamRole,
-} from "../api/teamApi";
-import { useAuth } from "../contexts/AuthContext";
-import "../styles/team-ui.css";
-
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-});
-
-function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unknown date";
-  return dateFormatter.format(date);
-}
+} from "../services/teamService";
+import { formatDate } from "../utils/date";
 
 export default function TeamPage() {
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [members, setMembers] = useState<TeamMember[]>([]);
+  const navigate = useNavigate();
+  const { token } = useAuth();
+  const { teams, loadingTeams, teamsError, refreshTeams, prependTeam } = useWorkspace();
+
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [membersError, setMembersError] = useState("");
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createMessage, setCreateMessage] = useState("");
+  const [createError, setCreateError] = useState("");
+
   const [inviteIdentifier, setInviteIdentifier] = useState("");
   const [inviteRole, setInviteRole] = useState<TeamRole>("member");
-
-  const [listLoading, setListLoading] = useState(true);
-  const [submittingTeam, setSubmittingTeam] = useState(false);
-  const [invitingMember, setInvitingMember] = useState(false);
-  const [membersLoading, setMembersLoading] = useState(false);
-
-  const [listError, setListError] = useState("");
-  const [createError, setCreateError] = useState("");
-  const [createSuccess, setCreateSuccess] = useState("");
+  const [inviting, setInviting] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState("");
   const [inviteError, setInviteError] = useState("");
-  const [inviteSuccess, setInviteSuccess] = useState("");
-  const [membersError, setMembersError] = useState("");
 
-  const { logout } = useAuth();
-  const navigate = useNavigate();
-
-  async function loadTeams() {
-    setListError("");
-    setListLoading(true);
-    try {
-      const result = await getTeams();
-      setTeams(result);
-      setSelectedTeamId((prev) => {
-        if (result.length === 0) return null;
-        if (prev && result.some((team) => team.id === prev)) return prev;
-        return result[0].id;
-      });
-    } catch (err) {
-      setListError(err instanceof Error ? err.message : "Failed to load teams");
-    } finally {
-      setListLoading(false);
-    }
-  }
-
-  async function loadMembers(teamId: number) {
-    setMembersError("");
-    setMembersLoading(true);
-    try {
-      const result = await getTeamMembers(teamId);
-      setMembers(result);
-    } catch (err) {
-      setMembersError(err instanceof Error ? err.message : "Failed to load team members");
-    } finally {
-      setMembersLoading(false);
-    }
-  }
+  const selectedTeam = useMemo(
+    () => teams.find((team) => team.id === selectedTeamId) ?? null,
+    [teams, selectedTeamId]
+  );
 
   useEffect(() => {
-    void loadTeams();
-  }, []);
+    if (!teams.length) {
+      setSelectedTeamId(null);
+      return;
+    }
+
+    if (selectedTeamId && teams.some((team) => team.id === selectedTeamId)) return;
+    setSelectedTeamId(teams[0].id);
+  }, [teams, selectedTeamId]);
 
   useEffect(() => {
-    if (selectedTeamId === null) {
+    if (!token || !selectedTeamId) {
       setMembers([]);
       setMembersError("");
       return;
     }
-    void loadMembers(selectedTeamId);
-  }, [selectedTeamId]);
 
-  async function handleCreateTeam(e: React.FormEvent) {
-    e.preventDefault();
-    const teamName = name.trim();
-    const teamDescription = description.trim();
+    const fetchMembers = async () => {
+      setMembersLoading(true);
+      setMembersError("");
+      try {
+        const response = await listTeamMembers(token, selectedTeamId);
+        setMembers(response);
+      } catch (error) {
+        setMembersError(error instanceof Error ? error.message : "Failed to load team members");
+      } finally {
+        setMembersLoading(false);
+      }
+    };
 
-    if (teamName.length < 2) {
-      setCreateError("Team name must be at least 2 characters.");
+    void fetchMembers();
+  }, [token, selectedTeamId]);
+
+  async function handleCreateTeam(event: FormEvent) {
+    event.preventDefault();
+    if (!token) return;
+
+    setCreateError("");
+    setCreateMessage("");
+
+    const trimmedName = name.trim();
+    if (trimmedName.length < 2) {
+      setCreateError("Team name must be at least 2 characters");
       return;
     }
 
-    setSubmittingTeam(true);
-    setCreateError("");
-    setCreateSuccess("");
+    setCreating(true);
     try {
-      const team = await createTeam({
-        name: teamName,
-        ...(teamDescription ? { description: teamDescription } : {}),
+      const team = await createTeam(token, {
+        name: trimmedName,
+        ...(description.trim() ? { description: description.trim() } : {}),
       });
-      setTeams((prev) => [team, ...prev]);
+      prependTeam(team);
       setSelectedTeamId(team.id);
       setName("");
       setDescription("");
-      setCreateSuccess("Team created.");
-    } catch (err) {
-      setCreateError(err instanceof Error ? err.message : "Failed to create team");
+      setCreateMessage("Team created successfully");
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : "Failed to create team");
     } finally {
-      setSubmittingTeam(false);
+      setCreating(false);
     }
   }
 
-  async function handleInviteMember(e: React.FormEvent) {
-    e.preventDefault();
-    if (!selectedTeamId) {
-      setInviteError("Select a team first.");
-      return;
-    }
+  async function handleInvite(event: FormEvent) {
+    event.preventDefault();
+    if (!token || !selectedTeamId) return;
+
+    setInviteError("");
+    setInviteMessage("");
 
     const identifier = inviteIdentifier.trim();
     if (identifier.length < 2) {
-      setInviteError("Use a valid username or email.");
+      setInviteError("Please enter a valid username or email");
       return;
     }
 
-    setInvitingMember(true);
-    setInviteError("");
-    setInviteSuccess("");
+    setInviting(true);
     try {
-      await inviteTeamMember(selectedTeamId, { identifier, role: inviteRole });
+      await inviteTeamMember(token, selectedTeamId, {
+        identifier,
+        role: inviteRole,
+      });
       setInviteIdentifier("");
-      setInviteSuccess("Member invited.");
-      await loadMembers(selectedTeamId);
-    } catch (err) {
-      setInviteError(err instanceof Error ? err.message : "Failed to invite member");
+      setInviteRole("member");
+      setInviteMessage("Member invited successfully");
+      const response = await listTeamMembers(token, selectedTeamId);
+      setMembers(response);
+    } catch (error) {
+      setInviteError(error instanceof Error ? error.message : "Failed to invite member");
     } finally {
-      setInvitingMember(false);
+      setInviting(false);
     }
   }
 
   return (
-    <div className="tm-shell">
-      <span className="tm-glow tm-glow-one" />
-      <span className="tm-glow tm-glow-two" />
-      <div className="tm-container">
-        <header className="tm-header">
-          <div>
-            <p className="tm-brand">Task Management</p>
-            <h1 className="tm-title">Teams</h1>
-            <p className="tm-subtitle">Build teams, invite people, and launch projects.</p>
-          </div>
-          <div className="tm-header-actions">
-            <button type="button" className="tm-ghost-btn" onClick={() => navigate("/")}>
-              Dashboard
-            </button>
-            <button type="button" className="tm-ghost-btn" onClick={logout}>
-              Sign out
-            </button>
-          </div>
-        </header>
+    <MainLayout
+      title="Teams"
+      subtitle="Create teams, invite members, and manage ownership roles"
+      onRefresh={() => {
+        void refreshTeams();
+      }}
+    >
+      <section className="teams-grid">
+        <Card>
+          <h3>Create Team</h3>
+          <p className="ui-muted">A team owner can invite members and manage project-level assignments.</p>
 
-        <main className="tm-grid">
-          <section className="tm-card">
-            <h2 className="tm-section-title">Create Team</h2>
-            <p className="tm-section-text">Start with a clear name, then invite members and launch projects.</p>
-            <form onSubmit={handleCreateTeam} className="tm-form">
-              <label className="tm-label" htmlFor="team-name">
-                Team name
-              </label>
-              <input
-                id="team-name"
-                className="tm-input"
-                type="text"
-                placeholder="Product Engineering"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+          <form className="stack-form" onSubmit={handleCreateTeam}>
+            <FormInput id="team-name" label="Team name" value={name} onChange={setName} required />
+            <FormTextArea
+              id="team-description"
+              label="Description"
+              value={description}
+              onChange={setDescription}
+              helperText="Optional summary of scope and responsibility"
+            />
+
+            {createError && <InlineNotice tone="error" message={createError} />}
+            {createMessage && <InlineNotice tone="success" message={createMessage} />}
+
+            <Button type="submit" disabled={creating}>
+              {creating ? "Creating..." : "Create team"}
+            </Button>
+          </form>
+
+          <div className="card-divider" />
+
+          <h3>Invite Member</h3>
+          {!selectedTeam && <p className="ui-muted">Select or create a team to invite members.</p>}
+          {selectedTeam && (
+            <form className="stack-form" onSubmit={handleInvite}>
+              <FormInput
+                id="invite-identifier"
+                label="Username or email"
+                value={inviteIdentifier}
+                onChange={setInviteIdentifier}
                 required
               />
-
-              <label className="tm-label" htmlFor="team-description">
-                Description
-              </label>
-              <textarea
-                id="team-description"
-                className="tm-textarea"
-                placeholder="What this team owns..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
+              <FormSelect
+                id="invite-role"
+                label="Role"
+                value={inviteRole}
+                onChange={(value) => setInviteRole(value as TeamRole)}
+                options={[
+                  { label: "Member", value: "member" },
+                  { label: "Owner", value: "owner" },
+                ]}
               />
 
-              {createError && <p className="tm-alert tm-alert-error">{createError}</p>}
-              {createSuccess && <p className="tm-alert tm-alert-success">{createSuccess}</p>}
+              {inviteError && <InlineNotice tone="error" message={inviteError} />}
+              {inviteMessage && <InlineNotice tone="success" message={inviteMessage} />}
 
-              <button type="submit" className="tm-primary-btn" disabled={submittingTeam}>
-                {submittingTeam ? "Creating..." : "Create team"}
-              </button>
+              <Button type="submit" disabled={inviting}>
+                {inviting ? "Inviting..." : "Invite member"}
+              </Button>
             </form>
+          )}
+        </Card>
 
-            <hr className="tm-divider" />
+        <Card>
+          <div className="section-head">
+            <h3>Teams</h3>
+            {loadingTeams && <span className="ui-muted">Syncing...</span>}
+          </div>
 
-            <h3 className="tm-subsection-title">Invite Member</h3>
-            {teams.length === 0 && <p className="tm-section-text">Create a team first to invite members.</p>}
+          {teamsError && <InlineNotice tone="error" message={teamsError} />}
+          {!teamsError && loadingTeams && <LoadingState compact message="Loading teams" />}
 
-            {teams.length > 0 && (
-              <form onSubmit={handleInviteMember} className="tm-form">
-                <label className="tm-label" htmlFor="invite-team">
-                  Team
-                </label>
-                <select
-                  id="invite-team"
-                  className="tm-select"
-                  value={selectedTeamId ?? ""}
-                  onChange={(e) => setSelectedTeamId(Number(e.target.value))}
-                >
-                  {teams.map((team) => (
-                    <option key={team.id} value={team.id}>
-                      {team.name}
-                    </option>
-                  ))}
-                </select>
+          {!loadingTeams && !teams.length && (
+            <EmptyState title="No teams yet" description="Create your first team using the form on the left." />
+          )}
 
-                <label className="tm-label" htmlFor="invite-identifier">
-                  Username or email
-                </label>
-                <input
-                  id="invite-identifier"
-                  className="tm-input"
-                  type="text"
-                  placeholder="alex or alex@company.com"
-                  value={inviteIdentifier}
-                  onChange={(e) => setInviteIdentifier(e.target.value)}
-                  required
-                />
-
-                <label className="tm-label" htmlFor="invite-role">
-                  Role
-                </label>
-                <select
-                  id="invite-role"
-                  className="tm-select"
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value as TeamRole)}
-                >
-                  <option value="member">Member</option>
-                  <option value="owner">Owner</option>
-                </select>
-
-                {inviteError && <p className="tm-alert tm-alert-error">{inviteError}</p>}
-                {inviteSuccess && <p className="tm-alert tm-alert-success">{inviteSuccess}</p>}
-
-                <button type="submit" className="tm-primary-btn" disabled={invitingMember}>
-                  {invitingMember ? "Inviting..." : "Invite member"}
-                </button>
-              </form>
-            )}
-
-            <div className="tm-members-panel">
-              <div className="tm-members-header">
-                <h3 className="tm-subsection-title">Team Members</h3>
-                {membersLoading && <span className="tm-muted">Loading...</span>}
-              </div>
-              {membersError && <p className="tm-alert tm-alert-error">{membersError}</p>}
-              {!membersLoading && !membersError && selectedTeamId === null && (
-                <p className="tm-section-text">No selected team.</p>
-              )}
-              {!membersLoading && !membersError && selectedTeamId !== null && members.length === 0 && (
-                <p className="tm-section-text">No members in this team yet.</p>
-              )}
-              {!membersLoading && !membersError && members.length > 0 && (
-                <ul className="tm-member-list">
-                  {members.map((member) => (
-                    <li key={member.id} className="tm-member-item">
-                      <div>
-                        <p className="tm-member-name">
-                          {member.first_name} {member.last_name}
-                        </p>
-                        <p className="tm-member-email">@{member.username} · {member.email}</p>
-                      </div>
-                      <span className="tm-role-chip">{member.role}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </section>
-
-          <section className="tm-card">
-            <div className="tm-list-header">
-              <h2 className="tm-section-title">Your team list</h2>
-              <button type="button" className="tm-ghost-btn" onClick={() => void loadTeams()} disabled={listLoading}>
-                {listLoading ? "Refreshing..." : "Refresh"}
-              </button>
-            </div>
-
-            {listError && <p className="tm-alert tm-alert-error">{listError}</p>}
-            {listLoading && <p className="tm-section-text">Loading teams...</p>}
-
-            {!listLoading && !listError && teams.length === 0 && (
-              <div className="tm-empty">
-                <p>No teams yet.</p>
-                <p>Create your first team from the form.</p>
-              </div>
-            )}
-
-            {!listLoading && !listError && teams.length > 0 && (
-              <ul className="tm-list">
-                {teams.map((team) => (
-                  <li className="tm-team-item" key={team.id}>
-                    <div>
-                      <h3>{team.name}</h3>
-                      <p>{team.description?.trim() || "No description provided."}</p>
+          {!!teams.length && (
+            <ul className="list-grid">
+              {teams.map((team) => (
+                <li key={team.id} className={`team-item${selectedTeamId === team.id ? " team-item-active" : ""}`}>
+                  <div className="team-item-content">
+                    <button type="button" className="team-select" onClick={() => setSelectedTeamId(team.id)}>
+                      <h4>{team.name}</h4>
+                      <p>{team.description || "No description"}</p>
+                      <small>Created {formatDate(team.created_at)}</small>
+                    </button>
+                    <div className="team-item-meta">
+                      <Badge tone={team.current_user_role === "owner" ? "owner" : "member"}>
+                        {team.current_user_role === "owner" ? "Owner" : "Member"}
+                      </Badge>
+                      <Button variant="secondary" size="sm" onClick={() => navigate(`/teams/${team.id}/projects`)}>
+                        Open
+                      </Button>
                     </div>
-                    <div className="tm-team-meta">
-                      <time>{formatDate(team.created_at)}</time>
-                      <button
-                        type="button"
-                        className="tm-ghost-btn tm-small-btn"
-                        onClick={() => navigate(`/teams/${team.id}/projects`)}
-                      >
-                        Open projects
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="card-divider" />
+
+          <div className="section-head">
+            <h3>Members</h3>
+            {selectedTeam && selectedTeam.current_user_role && (
+              <Badge tone={selectedTeam.current_user_role === "owner" ? "owner" : "member"}>
+                Your role: {selectedTeam.current_user_role === "owner" ? "Owner" : "Member"}
+              </Badge>
             )}
-          </section>
-        </main>
-      </div>
-    </div>
+          </div>
+
+          {!selectedTeam && <p className="ui-muted">Select a team to view members.</p>}
+          {selectedTeam && membersLoading && <LoadingState compact message="Loading members" />}
+          {selectedTeam && membersError && <InlineNotice tone="error" message={membersError} />}
+          {selectedTeam && !membersLoading && !membersError && !members.length && (
+            <EmptyState title="No members" description="Invite members to start collaborating." />
+          )}
+
+          {selectedTeam && !membersLoading && !membersError && !!members.length && (
+            <ul className="member-list">
+              {members.map((member) => (
+                <li key={member.id}>
+                  <div>
+                    <p>
+                      {member.first_name} {member.last_name}
+                    </p>
+                    <small>
+                      @{member.username} · {member.email}
+                    </small>
+                  </div>
+                  <Badge tone={member.role === "owner" ? "owner" : "member"}>
+                    {member.role === "owner" ? "Owner" : "Member"}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </section>
+    </MainLayout>
   );
 }
