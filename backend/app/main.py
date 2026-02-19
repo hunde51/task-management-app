@@ -1,32 +1,58 @@
+from __future__ import annotations
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import auth, projects, team
-from app.core.database import engine, Base
-from app.models.user import User  # noqa: F401 - register model so Base.metadata has tables
-from app.models.team import Team  # noqa: F401 - register model so Base.metadata has tables
-from app.models.project import Project  # noqa: F401 - register model so Base.metadata has tables
+from sqlalchemy import text
 
-app = FastAPI(title="Task Management API")
+from app.core.config import settings
+from app.core.database import Base, engine, ensure_legacy_task_schema
+from app.core.error_handlers import register_error_handlers
+from app.routes import auth, projects, tasks, teams
+from app.schemas.common import ApiResponse
+
+# Ensure models are imported so metadata is complete.
+from app import models  # noqa: F401
+
+app = FastAPI(title=settings.APP_NAME)
+
+dev_local_origin_regex = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$" if settings.APP_ENV != "production" else None
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=settings.cors_origins,
+    allow_origin_regex=dev_local_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Create DB tables if they don't exist (e.g. first run without migrations)
+register_error_handlers(app)
+
+# Keep create_all for local DX; production should use Alembic migrations.
 Base.metadata.create_all(bind=engine)
+ensure_legacy_task_schema()
 
 app.include_router(auth.router)
-app.include_router(team.router)
+app.include_router(teams.router)
 app.include_router(projects.router)
+app.include_router(tasks.router)
 
-@app.get("/")
-def read_root():
-    return {"message": "Task Management API"}
 
+@app.get("/health", response_model=ApiResponse[dict[str, str]])
+def health_check():
+    url = engine.url
+    with engine.connect() as connection:
+        db_identity = connection.execute(
+            text("SELECT current_database() AS database_name, current_user AS database_user")
+        ).mappings().one()
+
+    return ApiResponse(
+        message="Service is healthy",
+        data={
+            "status": "ok",
+            "database_backend": url.get_backend_name(),
+            "database_name": str(db_identity["database_name"]),
+            "database_host": str(url.host or ""),
+            "database_user": str(db_identity["database_user"]),
+        },
+    )
