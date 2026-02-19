@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: task-management-api
+    env: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: task-management-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: 60
+      - key: FRONTEND_ORIGINS
+        value: https://your-frontend-domain.vercel.app
+
+  - type: web
+    name: task-management-frontend
+    env: static
+    rootDir: frontend/task-managment
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://task-management-api.onrender.com
+
+databases:
+  - name: task-management-db
+    databaseName: task_management
+    user: task_management_user
